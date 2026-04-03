@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - "claude/reupload-release-*"
+      - "claude/update-release-*"
 
 jobs:
   release:
