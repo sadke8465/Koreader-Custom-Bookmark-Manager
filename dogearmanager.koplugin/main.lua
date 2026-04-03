@@ -572,46 +572,58 @@ function DogearManager:patchReaderDogear()
             local orig_resetLayout = ReaderDogear.resetLayout
 
             local function applyMarginOffset(rd_self)
-                local mt_steps = G_reader_settings:readSetting(S_MARGIN_TOP) or 0
-                local mr_steps = G_reader_settings:readSetting(S_MARGIN_RIGHT) or 0
-                local mt = topStepsToPx(mt_steps)
-                local mr = rightStepsToPx(mr_steps)
-
+                -- Guard: essential widget fields must exist
                 if not (rd_self.vgroup and rd_self.icon and rd_self.top_pad) then return end
+                -- Guard: dogear_size may be nil during document reflow (e.g. after a
+                -- page-margin change triggers resetLayout/updateDogearOffset before
+                -- orig_setupDogear has re-computed the size).  Attempting arithmetic on
+                -- a nil dogear_size produces a Lua error that propagates to the C event
+                -- loop and causes a SIGABRT crash when the widget is next painted.
+                if not rd_self.dogear_size or rd_self.dogear_size <= 0 then return end
 
-                -- Update main container dimensions
-                if rd_self[1] and rd_self[1].dimen then
-                    rd_self[1].dimen.w = Screen:getWidth()
-                    rd_self[1].dimen.h = (rd_self.dogear_y_offset or 0) + rd_self.dogear_size + mt
-                end
+                local ok, err = pcall(function()
+                    local mt_steps = G_reader_settings:readSetting(S_MARGIN_TOP) or 0
+                    local mr_steps = G_reader_settings:readSetting(S_MARGIN_RIGHT) or 0
+                    local mt = topStepsToPx(mt_steps)
+                    local mr = rightStepsToPx(mr_steps)
 
-                -- Apply top margin (VerticalSpan uses .width for its size)
-                rd_self.top_pad.width = (rd_self.dogear_y_offset or 0) + mt
-
-                -- Apply right margin
-                if mr > 0 then
-                    -- Detach icon from old wrapper before freeing to avoid invalidation
-                    if rd_self._dm_wrapper then
-                        rd_self._dm_wrapper[1] = nil
-                        rd_self._dm_wrapper:free()
+                    -- Update main container dimensions
+                    if rd_self[1] and rd_self[1].dimen then
+                        rd_self[1].dimen.w = Screen:getWidth()
+                        rd_self[1].dimen.h = (rd_self.dogear_y_offset or 0) + rd_self.dogear_size + mt
                     end
 
-                    rd_self._dm_wrapper = HorizontalGroup:new{
-                        align = "top",
-                        rd_self.icon,
-                        HorizontalSpan:new{ width = mr },
-                    }
-                    rd_self.vgroup[2] = rd_self._dm_wrapper
-                else
-                    if rd_self._dm_wrapper then
-                        rd_self._dm_wrapper[1] = nil
-                        rd_self._dm_wrapper:free()
-                        rd_self._dm_wrapper = nil
-                    end
-                    rd_self.vgroup[2] = rd_self.icon
-                end
+                    -- Apply top margin (VerticalSpan uses .width for its size)
+                    rd_self.top_pad.width = (rd_self.dogear_y_offset or 0) + mt
 
-                rd_self.vgroup:resetLayout()
+                    -- Apply right margin
+                    if mr > 0 then
+                        -- Detach icon from old wrapper before freeing to avoid invalidation
+                        if rd_self._dm_wrapper then
+                            rd_self._dm_wrapper[1] = nil
+                            rd_self._dm_wrapper:free()
+                        end
+
+                        rd_self._dm_wrapper = HorizontalGroup:new{
+                            align = "top",
+                            rd_self.icon,
+                            HorizontalSpan:new{ width = mr },
+                        }
+                        rd_self.vgroup[2] = rd_self._dm_wrapper
+                    else
+                        if rd_self._dm_wrapper then
+                            rd_self._dm_wrapper[1] = nil
+                            rd_self._dm_wrapper:free()
+                            rd_self._dm_wrapper = nil
+                        end
+                        rd_self.vgroup[2] = rd_self.icon
+                    end
+
+                    rd_self.vgroup:resetLayout()
+                end)
+                if not ok then
+                    logger.warn("DogearManager: applyMarginOffset failed:", err)
+                end
             end
 
             ReaderDogear.setupDogear = function(rd_self, new_dogear_size)
